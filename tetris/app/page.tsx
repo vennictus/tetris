@@ -9,11 +9,17 @@ export default function Home() {
         TETRIS
       </h1>
       <p className="text-lg text-gray-300 max-w-md text-center">
-        A retro Tetris game made with Next.js, TypeScript and Tailwind CSS v4.
+        Its Tetris surely you know what to do!
+        <br />
+        Use the arrow keys to move and rotate the pieces, and try to clear as many lines as possible.
+        <br />
+        Good luck!
+        <br />
+        (Keyboard only for Now)
       </p>
       <Link
         href="/tetris"
-        className="bg-red-600 hover:bg-red-800 text-white px-6 py-3 rounded-2xl text-lg transition-all shadow-md"
+        className="bg-red-600 hover:bg-violet-800 text-white px-6 py-3 rounded-2xl text-lg transition-all shadow-md"
       >
         Start Game
       </Link>
