@@ -4,32 +4,58 @@ import React from "react";
 const ROWS = 20;
 const COLUMNS = 10;
 
-// Type definition for a cell in the game board
 export type Cell = {
-  filled: boolean;  // True if the cell is occupied by a block, false otherwise
-  color: string;    // Tailwind CSS background color class for the cell
+  filled: boolean;
+  color: string;
 };
 
-// Props type for GameBoard — it expects a 2D array of Cell objects
 type GameBoardProps = {
   board: Cell[][];
+  ghostPiece?: {
+    shape: number[][];
+    row: number;
+    col: number;
+    color: string;
+  } | null;
 };
 
-// GameBoard component that renders the current state of the Tetris board
-export default function GameBoard({ board }: GameBoardProps) {
+export default function GameBoard({ board, ghostPiece = null }: GameBoardProps) {
+  // Create a copy of the board for rendering with ghost piece overlay
+  const renderBoard = board.map(row => row.slice());
+
+  if (ghostPiece) {
+    const { shape, row: ghostRow, col: ghostCol, color } = ghostPiece;
+
+    shape.forEach((r, y) => {
+      r.forEach((cell, x) => {
+        if (cell) {
+          const boardRow = ghostRow + y;
+          const boardCol = ghostCol + x;
+          if (
+            boardRow >= 0 &&
+            boardRow < ROWS &&
+            boardCol >= 0 &&
+            boardCol < COLUMNS &&
+            !renderBoard[boardRow][boardCol].filled
+          ) {
+            // Mark the ghost piece cell with a special color and opacity
+            renderBoard[boardRow][boardCol] = {
+              filled: true,
+              // Use tailwind classes for opacity with bg color - fallback to color with opacity style
+              color: `${color} opacity-40`,
+            };
+          }
+        }
+      });
+    });
+  }
+
   return (
-    // Container div with CSS Grid layout: 20 rows, 10 columns, fixed size and border
     <div className="grid grid-rows-20 grid-cols-10 w-[200px] h-[400px] border-2 border-white">
-      {/* Flatten the 2D board array into 1D and render each cell */}
-      {board.flat().map((cell, index) => (
+      {renderBoard.flat().map((cell, index) => (
         <div
-          key={index}  // React requires a unique key for each element in a list
-          className={`
-            w-full
-            h-full
-            border border-gray-700
-            ${cell.color}
-          `}
+          key={index}
+          className={`w-full h-full border border-gray-700 ${cell.color}`}
         />
       ))}
     </div>

@@ -1,109 +1,111 @@
 import { useState, useEffect, useRef } from 'react';
+import { TETROMINOES } from './tetrominoes'; // Your tetromino shapes and colors
 
-// You must have your TETROMINOES defined somewhere like this:
-// Each key maps to an array of 4 rotation states with shape matrix and color
-import { TETROMINOES } from './tetrominoes'; 
+// Constants for the Tetris board size
+const ROWS = 20; // standard Tetris height
+const COLS = 10; // standard Tetris width
 
-// Constants for the board size: 20 rows and 10 columns (standard Tetris)
-const ROWS = 20;
-const COLS = 10;
-
-// Each cell on the board will have this structure:
-// - filled: boolean whether a block occupies this cell
-// - color: string that holds the color of the block filling the cell
+// Type representing a single cell on the board
 export type Cell = {
-  filled: boolean;
-  color: string;
+  filled: boolean;  // whether the cell is occupied by a piece
+  color: string;    // color of the cell if filled
 };
 
-// Structure to keep track of the current moving piece
+// Type representing the current falling piece (tetromino)
 type CurrentPiece = {
-  shape: number[][];       // 2D array representing the shape of the piece, e.g. [[0,1,0],[1,1,1]]
-  color: string;           // Color string for the current piece
-  row: number;             // Row position on the board (top-left of piece)
-  col: number;             // Column position on the board (top-left of piece)
-  rotationIndex: number;   // Which rotation state (0 to 3) the piece is currently in
-  tetrominoKey: string;    // The key for the piece type in TETROMINOES (e.g. 'T', 'L', etc.)
+  shape: number[][];      // 2D matrix representing the shape (1 = block, 0 = empty)
+  color: string;          // color of the piece
+  row: number;            // current top-left row position on board
+  col: number;            // current top-left column position on board
+  rotationIndex: number;  // index of current rotation state
+  tetrominoKey: string;   // identifier key from TETROMINOES
 };
 
-// The main hook for managing the Tetris game state
 export function useTetris() {
-  // Board state: a 2D array representing the grid cells, each cell has filled + color
-  const [board, setBoard] = useState<Cell[][]>(createEmptyBoard());
+  // Game state hooks
+  const [board, setBoard] = useState<Cell[][]>(createEmptyBoard()); // The game board matrix
+  const [currentPiece, setCurrentPiece] = useState<CurrentPiece | null>(null); // Active falling piece
+  const [nextPieces, setNextPieces] = useState<CurrentPiece[]>([]); // Queue of next pieces
+  const [gameRunning, setGameRunning] = useState(false); // Is the game running
+  const [gameOver, setGameOver] = useState(false); // Is game over
+  const [score, setScore] = useState(0); // Current score
+  const [linesCleared, setLinesCleared] = useState(0); // Total cleared lines
+  const [bestScore, setBestScore] = useState(0); // Highest score saved locally
 
-  // Current active piece that is falling
-  const [currentPiece, setCurrentPiece] = useState<CurrentPiece | null>(null);
+  // Ghost piece to show where the current piece will land if dropped
+  const [ghostPiece, setGhostPiece] = useState<CurrentPiece | null>(null);
 
-  // Is the game currently running or paused
-  const [gameRunning, setGameRunning] = useState(false);
+  // Refs to keep track of currentPiece and nextPieces outside state updates (for async consistency)
+  const nextPiecesRef = useRef<CurrentPiece[]>([]);
+  const currentPieceRef = useRef<CurrentPiece | null>(null);
 
-  // Have we reached the game over condition?
-  const [gameOver, setGameOver] = useState(false);
-
-  // Player's current score
-  const [score, setScore] = useState(0);
-
-  // Number of lines cleared so far in this game
-  const [linesCleared, setLinesCleared] = useState(0);
-
-  // Best score ever achieved (loaded from localStorage)
-  const [bestScore, setBestScore] = useState(0);
-
-  // A ref to keep track of any active timeout for lock delay (not used fully here, but ready)
-  const lockDelayTimeout = useRef<NodeJS.Timeout | null>(null);
-
-  /*
-    useEffect runs only once on mount (component load).
-    We load the bestScore from localStorage, but only on the client.
-    This avoids errors when rendering on the server, because
-    localStorage is only available in the browser.
-  */
+  // Sync refs with state changes
   useEffect(() => {
-    if (typeof window !== "undefined") {
-      const storedBest = localStorage.getItem("bestScore");
+    nextPiecesRef.current = nextPieces;
+  }, [nextPieces]);
+
+  useEffect(() => {
+    currentPieceRef.current = currentPiece;
+  }, [currentPiece]);
+
+  // Load bestScore from localStorage on mount (only runs on client)
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const storedBest = localStorage.getItem('bestScore');
       if (storedBest) setBestScore(Number(storedBest));
     }
   }, []);
 
-  /*
-    When the component mounts, we want to create the first piece that
-    will fall. This initializes the current piece state.
-  */
+  // When the gameRunning state changes, initialize or reset game accordingly
   useEffect(() => {
-    setCurrentPiece(getRandomPiece());
-  }, []);
+    if (gameRunning) {
+      // Prepare initial queue of 3 random pieces
+      const initialQueue: CurrentPiece[] = [];
+      for (let i = 0; i < 3; i++) {
+        initialQueue.push(getRandomPiece());
+      }
+      setNextPieces(initialQueue);
 
-  /*
-    Helper function to create an empty board grid.
-    Returns a 2D array with ROWS rows and COLS columns,
-    each cell starts empty (filled: false, color: '').
-  */
+      // Set the first piece as current and update the queue
+      const first = initialQueue.shift()!;
+      setCurrentPiece(first);
+      setNextPieces(initialQueue);
+
+      // Reset the board and score-related states
+      setBoard(createEmptyBoard());
+      setScore(0);
+      setLinesCleared(0);
+      setGameOver(false);
+    } else {
+      resetGame();
+    }
+  }, [gameRunning]);
+
+  // Update ghost piece whenever currentPiece or board changes
+  useEffect(() => {
+    if (!currentPiece) {
+      setGhostPiece(null);
+      return;
+    }
+    const ghost = calculateGhostPiece(currentPiece, board);
+    setGhostPiece(ghost);
+  }, [currentPiece, board]);
+
+  // Create an empty board with all cells unfilled and no color
   function createEmptyBoard(): Cell[][] {
     return Array.from({ length: ROWS }, () =>
       Array.from({ length: COLS }, () => ({ filled: false, color: '' }))
     );
   }
 
-  /*
-    Helper function to pick a random piece from the TETROMINOES.
-    It picks a random key (like 'T', 'L', 'O', etc.), sets rotation to 0,
-    and centers the piece horizontally on the board.
-  */
+  // Generate a random new tetromino piece from TETROMINOES
   function getRandomPiece(): CurrentPiece {
     const tetrominoKeys = Object.keys(TETROMINOES);
-
-    // Pick a random piece key from available tetrominoes
     const tetrominoKey = tetrominoKeys[Math.floor(Math.random() * tetrominoKeys.length)];
-
-    // Start rotation at index 0
     const rotationIndex = 0;
-
-    // Get the shape & color for the initial rotation
     const tetromino = TETROMINOES[tetrominoKey][rotationIndex];
-
-    // Center the piece horizontally on the board
+    // Center the piece horizontally at spawn
     const col = Math.floor((COLS - tetromino.shape[0].length) / 2);
-
     return {
       shape: tetromino.shape,
       color: tetromino.color,
@@ -114,25 +116,20 @@ export function useTetris() {
     };
   }
 
-  /*
-    Checks if placing a shape at the specified row/col
-    on the board would cause a collision (out of bounds or overlapping filled cells).
-    Returns true if collision detected, false otherwise.
-  */
+  // Check if a piece at a specific position would collide with the board or filled cells
   function checkCollision(shape: number[][], row: number, col: number): boolean {
     for (let y = 0; y < shape.length; y++) {
       for (let x = 0; x < shape[y].length; x++) {
         if (shape[y][x]) {
           const boardRow = row + y;
           const boardCol = col + x;
-
-          // Check out of bounds
+          // Out of bounds or cell already filled means collision
           if (
             boardRow < 0 ||
             boardRow >= ROWS ||
             boardCol < 0 ||
             boardCol >= COLS ||
-            (board[boardRow] && board[boardRow][boardCol]?.filled)
+            (board[boardRow] && board[boardRow][boardCol].filled)
           ) {
             return true;
           }
@@ -142,225 +139,253 @@ export function useTetris() {
     return false;
   }
 
-  /*
-    Clear any fully filled rows and return a new board
-    along with the number of rows cleared.
-  */
-  function clearRows(board: Cell[][]): { clearedBoard: Cell[][]; clearedCount: number } {
-    // Filter out rows that are completely filled (all cells filled)
-    const newBoard = board.filter((row) => !row.every((cell) => cell.filled));
+  // Merge a piece's blocks into the board (for locking)
+  function mergePieceToBoard(piece: CurrentPiece, board: Cell[][]): Cell[][] {
+    // Deep copy the board to avoid mutation
+    const newBoard = board.map(row => row.map(cell => ({ ...cell })));
 
-    // Number of rows cleared is difference between original rows and remaining rows
-    const clearedCount = ROWS - newBoard.length;
-
-    // Add empty rows on top to maintain board height
-    while (newBoard.length < ROWS) {
-      newBoard.unshift(Array.from({ length: COLS }, () => ({ filled: false, color: '' })));
-    }
-
-    return { clearedBoard: newBoard, clearedCount };
-  }
-
-  /*
-    Clear any active lock delay timeout, if any.
-    (In more advanced implementations, this prevents piece locking immediately
-    after touching the ground and allows a small delay.)
-  */
-  function resetLockDelay() {
-    if (lockDelayTimeout.current) {
-      clearTimeout(lockDelayTimeout.current);
-      lockDelayTimeout.current = null;
-    }
-  }
-
-  /*
-    Lock the current piece into the board when it can no longer move down.
-    Update the board state, clear lines if any, update score and lines cleared,
-    spawn a new piece or set game over if collision on spawn.
-  */
-  function lockPiece(piece: CurrentPiece) {
-    const { shape, row, col, color } = piece;
-
-    // Clone board so we can modify it safely
-    const newBoard = board.map(r => r.slice());
-
-    // For each block cell in the piece's shape, mark it filled on the board
-    shape.forEach((r, y) => {
-      r.forEach((cell, x) => {
+    piece.shape.forEach((row, y) => {
+      row.forEach((cell, x) => {
         if (cell) {
-          const boardRow = row + y;
-          const boardCol = col + x;
-
-          // Safety check for valid board positions
+          const boardRow = piece.row + y;
+          const boardCol = piece.col + x;
           if (boardRow >= 0 && boardRow < ROWS && boardCol >= 0 && boardCol < COLS) {
-            newBoard[boardRow][boardCol] = { filled: true, color };
+            newBoard[boardRow][boardCol] = { filled: true, color: piece.color };
           }
         }
       });
     });
 
-    // Clear any completed rows and get the cleared row count
-    const { clearedBoard, clearedCount } = clearRows(newBoard);
+    return newBoard;
+  }
 
-    // Update the board state with cleared rows
-    setBoard(clearedBoard);
+  // Clear completed lines and return updated board and number of lines cleared
+  function clearLines(board: Cell[][]): { newBoard: Cell[][]; linesCleared: number } {
+    const newBoard: Cell[][] = [];
+    let clearedLines = 0;
 
-    // Update score and lines cleared if any rows were cleared
-    if (clearedCount > 0) {
-      const points = clearedCount * 100;
-
-      // Update score and check if we beat the best score
-      setScore(prev => {
-        const newScore = prev + points;
-        if (newScore > bestScore) {
-          setBestScore(newScore);
-
-          // Save best score to localStorage for persistence
-          if (typeof window !== "undefined") {
-            localStorage.setItem("bestScore", newScore.toString());
-          }
-        }
-        return newScore;
-      });
-
-      // Update lines cleared count
-      setLinesCleared(prev => prev + clearedCount);
+    for (let r = 0; r < ROWS; r++) {
+      // If all cells in a row are filled, it's a completed line
+      if (board[r].every(cell => cell.filled)) {
+        clearedLines++;
+      } else {
+        newBoard.push(board[r]);
+      }
     }
 
-    // Spawn a new piece for next turn
-    const nextPiece = getRandomPiece();
+    // Add empty rows at the top for the cleared lines
+    for (let i = 0; i < clearedLines; i++) {
+      newBoard.unshift(
+        Array.from({ length: COLS }, () => ({ filled: false, color: '' }))
+      );
+    }
 
-    // If new piece collides immediately, game is over
-    if (checkCollision(nextPiece.shape, nextPiece.row, nextPiece.col)) {
+    return { newBoard, linesCleared: clearedLines };
+  }
+
+  // Rotate the piece clockwise and try to apply wall kicks to prevent collisions
+  function rotatePiece(piece: CurrentPiece): CurrentPiece {
+    const rotations = TETROMINOES[piece.tetrominoKey];
+    const nextRotationIndex = (piece.rotationIndex + 1) % rotations.length;
+    const nextShape = rotations[nextRotationIndex].shape;
+
+    // Try rotation without horizontal offset first
+    if (!checkCollision(nextShape, piece.row, piece.col)) {
+      return {
+        ...piece,
+        shape: nextShape,
+        rotationIndex: nextRotationIndex,
+      };
+    }
+
+    // Try wall kicks: small horizontal shifts to allow rotation near walls
+    const kicks = [-1, 1, -2, 2];
+    for (const kick of kicks) {
+      if (!checkCollision(nextShape, piece.row, piece.col + kick)) {
+        return {
+          ...piece,
+          shape: nextShape,
+          col: piece.col + kick,
+          rotationIndex: nextRotationIndex,
+        };
+      }
+    }
+
+    // If no valid rotation found, return original piece
+    return piece;
+  }
+
+  // Move the current piece one column left if possible
+  function moveLeft() {
+    if (!currentPiece || gameOver) return;
+    const newCol = currentPiece.col - 1;
+    if (!checkCollision(currentPiece.shape, currentPiece.row, newCol)) {
+      setCurrentPiece({ ...currentPiece, col: newCol });
+    }
+  }
+
+  // Move the current piece one column right if possible
+  function moveRight() {
+    if (!currentPiece || gameOver) return;
+    const newCol = currentPiece.col + 1;
+    if (!checkCollision(currentPiece.shape, currentPiece.row, newCol)) {
+      setCurrentPiece({ ...currentPiece, col: newCol });
+    }
+  }
+
+  // Move the current piece down by one row if possible; lock piece if it cannot move down
+  // Returns true if moved down, false if locked
+  function moveDown(): boolean {
+    if (!currentPiece || gameOver) return false;
+    const newRow = currentPiece.row + 1;
+    if (!checkCollision(currentPiece.shape, newRow, currentPiece.col)) {
+      setCurrentPiece({ ...currentPiece, row: newRow });
+      return true;
+    } else {
+      lockPiece();
+      return false;
+    }
+  }
+
+  // Rotate the current piece clockwise with wall kicks
+  function rotate() {
+    if (!currentPiece || gameOver) return;
+    const rotated = rotatePiece(currentPiece);
+    setCurrentPiece(rotated);
+  }
+
+  // Instantly drop the piece to the lowest possible position and lock it
+  function drop() {
+    if (!currentPiece || gameOver) return;
+
+    let dropRow = currentPiece.row;
+    // Keep moving down until collision would occur
+    while (!checkCollision(currentPiece.shape, dropRow + 1, currentPiece.col)) {
+      dropRow++;
+    }
+
+    // Lock piece at final position
+    lockPiece({ ...currentPiece, row: dropRow });
+  }
+
+  // Lock a piece on the board, clear lines, update score and spawn next piece
+  // Optionally accepts a piece to lock, defaults to currentPiece
+  function lockPiece(pieceToLock?: CurrentPiece) {
+    const piece = pieceToLock || currentPiece;
+    if (!piece) return;
+
+    // Merge the piece into the board
+    const newBoard = mergePieceToBoard(piece, board);
+    // Clear any complete lines
+    const { newBoard: clearedBoard, linesCleared: cleared } = clearLines(newBoard);
+
+    setBoard(clearedBoard);
+    setLinesCleared(prev => prev + cleared);
+
+    // Scoring: points for lines cleared, small points for locking without clearing
+    if (cleared > 0) {
+      setScore(prev => prev + calculateScore(cleared));
+    } else {
+      setScore(prev => prev + 5); // small points for locking with no line clear
+    }
+
+    // Keep the nextPieces queue length 3
+    let queue = [...nextPiecesRef.current];
+    while (queue.length < 3) {
+      queue.push(getRandomPiece());
+    }
+    // Take the next piece from the queue
+    const next = queue.shift()!;
+    setNextPieces(queue);
+    setCurrentPiece(next);
+
+    // If next piece collides at spawn, game over
+    if (checkCollision(next.shape, next.row, next.col)) {
       setGameOver(true);
       setGameRunning(false);
-    } else {
-      // Otherwise set new piece as current piece
-      setCurrentPiece(nextPiece);
+
+      // Save best score if beaten
+      if (score > bestScore) {
+        setBestScore(score);
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('bestScore', String(score));
+        }
+      }
     }
   }
 
-  /*
-    Move the current piece down by one row if possible.
-    If not possible, lock the piece.
-  */
-  function moveDown() {
-    if (!gameRunning || gameOver || !currentPiece) return;
-
-    const { shape, row, col } = currentPiece;
-
-    if (!checkCollision(shape, row + 1, col)) {
-      resetLockDelay();
-      setCurrentPiece({ ...currentPiece, row: row + 1 });
-    } else {
-      lockPiece(currentPiece);
+  // Standard Tetris scoring based on lines cleared at once
+  function calculateScore(lines: number): number {
+    switch (lines) {
+      case 1:
+        return 100;
+      case 2:
+        return 300;
+      case 3:
+        return 500;
+      case 4:
+        return 800;
+      default:
+        return 0;
     }
   }
 
-  /*
-    Move the current piece left by one column if possible.
-  */
-  function moveLeft() {
-    if (!gameRunning || gameOver || !currentPiece) return;
-
-    const { shape, row, col } = currentPiece;
-
-    if (!checkCollision(shape, row, col - 1)) {
-      resetLockDelay();
-      setCurrentPiece({ ...currentPiece, col: col - 1 });
+  // Calculate the ghost piece position (where the piece would land if dropped)
+  function calculateGhostPiece(piece: CurrentPiece, board: Cell[][]): CurrentPiece {
+    let ghostRow = piece.row;
+    while (!checkCollision(piece.shape, ghostRow + 1, piece.col)) {
+      ghostRow++;
     }
+    return { ...piece, row: ghostRow };
   }
 
-  /*
-    Move the current piece right by one column if possible.
-  */
-  function moveRight() {
-    if (!gameRunning || gameOver || !currentPiece) return;
-
-    const { shape, row, col } = currentPiece;
-
-    if (!checkCollision(shape, row, col + 1)) {
-      resetLockDelay();
-      setCurrentPiece({ ...currentPiece, col: col + 1 });
-    }
-  }
-
-  /*
-    Rotate the current piece clockwise if possible.
-  */
-  function rotate() {
-    if (!gameRunning || gameOver || !currentPiece) return;
-
-    const { tetrominoKey, rotationIndex, row, col } = currentPiece;
-
-    // Calculate next rotation index (0-3)
-    const nextIndex = (rotationIndex + 1) % 4;
-
-    // Get the new rotated shape
-    const nextShape = TETROMINOES[tetrominoKey][nextIndex].shape;
-
-    // Only rotate if it won't cause a collision
-    if (!checkCollision(nextShape, row, col)) {
-      resetLockDelay();
-      setCurrentPiece({
-        ...currentPiece,
-        shape: nextShape,
-        rotationIndex: nextIndex,
-      });
-    }
-  }
-
-  /*
-    Hard drop: instantly move the piece down until it collides,
-    then lock it into the board.
-  */
-  function drop() {
-    if (!gameRunning || gameOver || !currentPiece) return;
-
-    const { shape, col } = currentPiece;
-    let newRow = currentPiece.row;
-
-    // Move down until collision
-    while (!checkCollision(shape, newRow + 1, col)) {
-      newRow++;
-    }
-
-    // Lock the piece at final position
-    const finalPiece = { ...currentPiece, row: newRow };
-    lockPiece(finalPiece);
-  }
-
-  /*
-    Start a new game: reset board, score, lines, current piece, and flags.
-  */
+  // Start the game (sets gameRunning to true, triggers initialization)
   function startGame() {
+    setGameRunning(true);
+  }
+
+  // Pause the game (stops the game loop)
+  function pauseGame() {
+    setGameRunning(false);
+  }
+
+  // Reset the game state completely
+  function resetGame() {
     setBoard(createEmptyBoard());
-    setCurrentPiece(getRandomPiece());
+    setCurrentPiece(null);
+    setNextPieces([]);
+    setGameRunning(false);
+    setGameOver(false);
     setScore(0);
     setLinesCleared(0);
-    setGameOver(false);
-    setGameRunning(true);
-    resetLockDelay();
   }
+    // Add this function inside useTetris
+function resetHighScore() {
+  setBestScore(0);
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem('bestScore');
+  }
+}
 
-  // resetGame is just an alias for startGame (convenience)
-  const resetGame = startGame;
-
-  // Return everything your React component will need to play/control the game
+  // Expose all necessary game state and controls
   return {
     board,
     currentPiece,
+    nextPieces,
+    ghostPiece,
+    gameRunning,
+    gameOver,
+    score,
+    linesCleared,
+    bestScore,
+    startGame,
+    pauseGame,
+    resetGame,
     moveLeft,
     moveRight,
     moveDown,
     rotate,
     drop,
-    resetGame,
-    startGame,
-    gameOver,
-    gameRunning,
-    score,
-    bestScore,
-    linesCleared,
+    resetHighScore,
   };
 }

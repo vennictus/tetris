@@ -2,12 +2,43 @@
 
 import React, { useEffect } from 'react';
 import GameBoard, { Cell } from '../../components/gameBoard';
-import  {useTetris}  from '../../tetris/useTetris';
+import { useTetris } from '../../tetris/useTetris';
+
+// Small component to render a mini preview of a tetromino shape for upcoming pieces
+function MiniPiece({
+  shape,
+  color,
+}: {
+  shape: number[][];
+  color: string;
+}) {
+  const size = 4; // 4x4 grid for preview
+
+  return (
+    <div className="grid grid-rows-4 grid-cols-4 gap-[1px] w-16 h-16 bg-gray-800 p-1 rounded">
+      {Array.from({ length: size * size }).map((_, idx) => {
+        const x = idx % size;
+        const y = Math.floor(idx / size);
+        const filled = shape[y]?.[x] || 0;
+        return (
+          <div
+            key={idx}
+            className={`w-full h-full rounded ${
+              filled ? color : 'bg-gray-900'
+            }`}
+          />
+        );
+      })}
+    </div>
+  );
+}
 
 export default function TetrisPage() {
   const {
     board,
     currentPiece,
+    ghostPiece,
+    nextPieces,
     moveLeft,
     moveRight,
     moveDown,
@@ -20,6 +51,7 @@ export default function TetrisPage() {
     score,
     bestScore,
     linesCleared,
+    resetHighScore, // <-- added resetHighScore
   } = useTetris();
 
   // Auto drop the piece every 500ms when game is running
@@ -103,9 +135,31 @@ export default function TetrisPage() {
         >
           {gameRunning ? 'Restart' : 'Start'}
         </button>
+
+        <button
+          onClick={resetHighScore}
+          className="px-4 py-2 bg-red-600 rounded hover:bg-red-700 transition"
+        >
+          Reset High Score
+        </button>
       </div>
 
-      <GameBoard board={mergedBoard} />
+      <div className="flex gap-6">
+        {/* Upcoming pieces panel on left */}
+        <div className="flex flex-col gap-4">
+          <h2 className="text-lg font-semibold mb-2">Next Pieces</h2>
+          {nextPieces.map((piece, idx) => (
+            <MiniPiece
+              key={idx}
+              shape={piece.shape}
+              color={piece.color}
+            />
+          ))}
+        </div>
+
+        {/* Game board */}
+        <GameBoard board={mergedBoard} ghostPiece={ghostPiece} />
+      </div>
 
       <div className="mt-4 space-x-6">
         <span>Score: {score}</span>
