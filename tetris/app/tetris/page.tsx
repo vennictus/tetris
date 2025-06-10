@@ -42,13 +42,11 @@ const bgShapes = [
 ];
 
 export default function TetrisPage() {
-  // Hydration state
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => {
     setHydrated(true);
   }, []);
 
-  // Always call hooks in the same order
   const {
     board,
     currentPiece,
@@ -101,17 +99,12 @@ export default function TetrisPage() {
           break;
       }
     }
-
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [moveLeft, moveRight, moveDown, rotate, drop, gameRunning, gameOver]);
 
-  // If not hydrated, render minimal placeholder
-  if (!hydrated) {
-    return <main className="min-h-screen bg-black" />;
-  }
+  if (!hydrated) return <main className="min-h-screen bg-black" />;
 
-  // Merge currentPiece onto the board for rendering
   const mergedBoard: Cell[][] = board.map(row => [...row]);
   if (currentPiece) {
     const { shape, row, col, color } = currentPiece;
@@ -137,8 +130,8 @@ export default function TetrisPage() {
   }
 
   return (
-    <main className="relative min-h-screen flex items-center justify-center bg-black text-white overflow-hidden font-mono select-none">
-      {/* Falling Pieces Background */}
+    <main className="relative min-h-screen flex flex-col justify-center items-center bg-black text-white overflow-hidden font-mono select-none">
+      {/* Falling Background Shapes */}
       <div aria-hidden className="absolute inset-0 pointer-events-none z-0 overflow-hidden">
         {[...Array(15)].map((_, i) => {
           const shape = bgShapes[Math.floor(Math.random() * bgShapes.length)];
@@ -157,7 +150,7 @@ export default function TetrisPage() {
                   row.map((filled, x) => (
                     <div
                       key={`${y}-${x}`}
-                      className="jsx-7033976298d6b2f6 w-3 h-3 rounded-sm bg-red-600"
+                      className="w-3 h-3 rounded-sm bg-red-600"
                     />
                   ))
                 )}
@@ -167,21 +160,22 @@ export default function TetrisPage() {
         })}
       </div>
 
-      {/* Red Grid + Flicker Effects */}
+      {/* Grid + Flicker Effects */}
       <div aria-hidden className="absolute inset-0 bg-[radial-gradient(#3a0000_1px,transparent_1px)] bg-[size:18px_18px] opacity-10 z-0 pointer-events-none" />
       <div aria-hidden className="absolute inset-0 bg-black opacity-[0.05] mix-blend-screen animate-flicker pointer-events-none z-0" />
 
-      {/* Pulsing Glow */}
-      <div aria-hidden className="absolute -top-24 -left-24 w-96 h-96 bg-red-700 blur-3xl opacity-20 animate-pulse-slow rounded-full z-0" />
-      <div aria-hidden className="absolute bottom-0 right-0 w-72 h-72 bg-red-900 blur-2xl opacity-10 rounded-full animate-flicker pointer-events-none z-0" />
-
-      {/* TETRIS Watermark */}
-      <div className="absolute text-red-900 text-[10rem] font-extrabold tracking-widest opacity-[0.03] z-0 pointer-events-none pulse select-none">
-        TETRIS
+      {/* Pulsing Red Sun + TETRIS Logo */}
+      <div className="absolute z-0 inset-0 flex items-center justify-center pointer-events-none">
+        <div className="relative">
+          <div className="absolute inset-0 w-[500px] h-[500px] bg-red-700 rounded-full blur-[160px] opacity-30 animate-pulse-slow"></div>
+          <div className="text-red-500 text-[12rem] font-extrabold tracking-widest opacity-60 drop-shadow-[0_0_50px_#ff0000cc] animate-pulse">
+            TETRIS
+          </div>
+        </div>
       </div>
 
       {/* Main UI */}
-      <div className="z-10 flex gap-12 items-center justify-center p-8">
+      <div className="z-10 flex gap-12 items-center justify-center p-8 mt-16">
         <section className="flex flex-col items-center gap-6 w-56 h-72 bg-black rounded-3xl p-6 shadow-[0_0_12px_#550000] border border-red-700">
           <h2 className="text-xl font-bold text-red-500 tracking-wider">Next</h2>
           <div className="flex flex-col gap-4">
@@ -232,64 +226,56 @@ export default function TetrisPage() {
         </section>
       </div>
 
-      {/* Overlays */}
+      {/* Game Over + Start Overlays */}
       {gameOver && (
         <div className="absolute top-20 left-1/2 -translate-x-1/2 text-red-600 text-5xl font-extrabold tracking-widest drop-shadow-md animate-flicker pulse">
-          GAME OVER
+          GAME OVER!!
         </div>
       )}
-
       {!gameRunning && !gameOver && (
         <div className="absolute top-20 left-1/2 -translate-x-1/2 text-red-600 text-4xl font-bold tracking-wider animate-flicker pulse">
-          PRESS START TO PLAY
+          PRESS START TO PLAY!!
         </div>
       )}
+        {gameRunning && !gameOver && (
+            <div className="absolute top-10 left-1/2 -translate-x-1/2 text-green-400 text-3xl font-bold tracking-wider animate-flicker">
+                GAME ON!
+            </div>
+        )}
+      {/* Instructions */}
+      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 text-sm text-red-400 flex gap-6 tracking-wide bg-black/30 px-4 py-2 rounded-full border border-red-700 shadow-[0_0_10px_#550000] backdrop-blur-md">
+        <span>⬅️ ➡️ Move</span>
+        <span>⬆️ Rotate</span>
+        <span>⬇️ Soft Drop</span>
+        <span>⎵ Hard Drop</span>
+      </div>
 
-      {/* Animations */}
+      {/* Styles */}
       <style jsx>{`
         @keyframes flicker {
-          0%,
-          100% {
-            opacity: 0.05;
-          }
-          50% {
-            opacity: 0.1;
-          }
+          0%, 100% { opacity: 0.05; }
+          50% { opacity: 0.1; }
         }
         @keyframes pulse {
-          0%,
-          100% {
-            opacity: 0.03;
-          }
-          50% {
-            opacity: 0.08;
-          }
+          0%, 100% { opacity: 0.3; }
+          50% { opacity: 0.6; }
         }
         @keyframes pulse-slow {
-          0%,
-          100% {
-            opacity: 0.1;
-          }
-          50% {
-            opacity: 0.3;
-          }
+          0%, 100% { opacity: 0.15; }
+          50% { opacity: 0.4; }
         }
         @keyframes fall {
-          0% {
-            transform: translateY(-10%);
-          }
-          100% {
-            transform: translateY(110vh);
-          }
+          0% { transform: translateY(-10%); }
+          100% { transform: translateY(110vh); }
         }
         .animate-flicker {
           animation: flicker 3s linear infinite;
         }
         .pulse {
-          animation: pulse 3s ease-in-out infinite;
+          animation: pulse 4s ease-in-out infinite;
         }
         .pulse-slow {
-          animation: pulse-slow 6s ease-in-out infinite;
+          animation: pulse-slow 8s ease-in-out infinite;
         }
       `}</style>
     </main>
