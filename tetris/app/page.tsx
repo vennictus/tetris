@@ -1,6 +1,6 @@
 'use client';
 import Link from "next/link";
-import { useMemo } from "react";
+import { useState, useEffect } from "react";
 
 const bgShapes = [
   [
@@ -22,18 +22,21 @@ const bgShapes = [
 ];
 
 export default function Home() {
-  // 🎯 Generate background falling blocks only once
-  const fallingShapes = useMemo(
-    () => [...Array(15)].map(() => bgShapes[Math.floor(Math.random() * bgShapes.length)]),
-    []
-  );
+  const [fallingShapes, setFallingShapes] = useState<number[][][]>([]);
+
+  // Generate background falling blocks only on the client
+  useEffect(() => {
+    setFallingShapes(
+      [...Array(15)].map(() => bgShapes[Math.floor(Math.random() * bgShapes.length)])
+    );
+  }, []);
 
   return (
     <main className="relative min-h-screen bg-black text-white flex flex-col items-center justify-center gap-8 overflow-hidden font-mono select-none">
 
       {/* Falling Background Shapes */}
       <div aria-hidden className="absolute inset-0 pointer-events-none z-0 overflow-hidden">
-        {fallingShapes.map((shape, i) => (
+        {fallingShapes.map((shape: number[][], i: number) => (
           <div
             key={i}
             className="absolute w-12 h-12 opacity-30"
@@ -44,11 +47,12 @@ export default function Home() {
             }}
           >
             <div className="grid grid-cols-3 grid-rows-2 gap-[1px]">
-              {shape.flatMap((row, y) =>
-                row.map((filled, x) => (
+              {shape.flatMap((row: number[], y: number) =>
+                row.map((filled: number, x: number) => (
                   <div
                     key={`${y}-${x}`}
-                    className={`w-3 h-3 rounded-sm ${filled ? 'bg-blue-500' : 'bg-transparent'}`}
+                    className={`w-3 h-3 rounded-sm transition-colors duration-200 
+                      ${filled ? 'bg-blue-500 hover:bg-blue-400' : 'bg-transparent hover:bg-blue-200/30'}`}
                   />
                 ))
               )}
