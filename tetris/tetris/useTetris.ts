@@ -4,6 +4,7 @@ import { TETROMINOES } from './tetrominoes';
 const ROWS = 20;
 const COLS = 10;
 
+// ---- Types ----
 export type Cell = {
   filled: boolean;
   color: string;
@@ -18,7 +19,9 @@ type CurrentPiece = {
   tetrominoKey: string;
 };
 
+// ---- Hook ----
 export function useTetris() {
+  // Visible state
   const [board, setBoard] = useState<Cell[][]>(createEmptyBoard());
   const [currentPiece, setCurrentPiece] = useState<CurrentPiece | null>(null);
   const [nextPieces, setNextPieces] = useState<CurrentPiece[]>([]);
@@ -29,17 +32,26 @@ export function useTetris() {
   const [bestScore, setBestScore] = useState(0);
   const [ghostPiece, setGhostPiece] = useState<CurrentPiece | null>(null);
 
-  const nextPiecesRef = useRef<CurrentPiece[]>([]);
-  const currentPieceRef = useRef<CurrentPiece | null>(null);
+  // Timing & difficulty
+  const [dropInterval, setDropInterval] = useState(400); // ms
+  const [elapsedTime, setElapsedTime] = useState(0); // seconds
 
-  useEffect(() => {
-    nextPiecesRef.current = nextPieces;
-  }, [nextPieces]);
+  // ---- Refs to avoid stale closures inside intervals ----
+  const boardRef = useRef<Cell[][]>(board);
+  const currentPieceRef = useRef<CurrentPiece | null>(currentPiece);
+  const nextPiecesRef = useRef<CurrentPiece[]>(nextPieces);
+  const gameRunningRef = useRef<boolean>(gameRunning);
+  const gameOverRef = useRef<boolean>(gameOver);
+  const dropIntervalRef = useRef<number>(dropInterval);
 
-  useEffect(() => {
-    currentPieceRef.current = currentPiece;
-  }, [currentPiece]);
+  useEffect(() => { boardRef.current = board; }, [board]);
+  useEffect(() => { currentPieceRef.current = currentPiece; }, [currentPiece]);
+  useEffect(() => { nextPiecesRef.current = nextPieces; }, [nextPieces]);
+  useEffect(() => { gameRunningRef.current = gameRunning; }, [gameRunning]);
+  useEffect(() => { gameOverRef.current = gameOver; }, [gameOver]);
+  useEffect(() => { dropIntervalRef.current = dropInterval; }, [dropInterval]);
 
+  // Load high score once
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const storedBest = localStorage.getItem('bestScore');
@@ -47,31 +59,69 @@ export function useTetris() {
     }
   }, []);
 
-  // Only start or reset when gameRunning becomes true
+  // Start/initialize a new game when toggled on
   useEffect(() => {
     if (gameRunning && !gameOver) {
       const initialQueue: CurrentPiece[] = [];
-      for (let i = 0; i < 3; i++) {
-        initialQueue.push(getRandomPiece());
-      }
+      for (let i = 0; i < 3; i++) initialQueue.push(getRandomPiece());
+
       const first = initialQueue.shift()!;
       setBoard(createEmptyBoard());
       setScore(0);
       setLinesCleared(0);
       setNextPieces(initialQueue);
       setCurrentPiece(first);
+      setElapsedTime(0);
+      setDropInterval(400);
       setGameOver(false);
     }
-  }, [gameRunning]);
+  }, [gameRunning, gameOver]);
 
+  // Ghost piece keeps in sync with visible state
   useEffect(() => {
-    if (!currentPiece) {
+    const cp = currentPieceRef.current;
+    if (!cp) {
       setGhostPiece(null);
       return;
     }
-    const ghost = calculateGhostPiece(currentPiece, board);
-    setGhostPiece(ghost);
+    setGhostPiece(calculateGhostPiece(cp, boardRef.current));
   }, [currentPiece, board]);
+
+  // ---- Gravity tick (SINGLE source of truth) ----
+  useEffect(() => {
+    if (!gameRunning || gameOver) return;
+
+    const id = setInterval(() => {
+      // Step down one row; if can't, it will lock
+      stepDown();
+
+      // Advance elapsed time in seconds based on the current interval
+      setElapsedTime((prev) => {
+        const next = prev + dropIntervalRef.current / 1000;
+        if (next >= 150) {
+          // Hard stop at 150s
+          setGameOver(true);
+          setGameRunning(false);
+        }
+        return next;
+      });
+    }, dropInterval);
+
+    return () => clearInterval(id);
+  }, [gameRunning, gameOver, dropInterval]);
+
+  // ---- Difficulty ramp: speed up every 5s until 100ms ----
+  useEffect(() => {
+    if (!gameRunning || gameOver) return;
+
+    const speedId = setInterval(() => {
+      setDropInterval((prev) => Math.max(100, prev - 20));
+    }, 5000);
+
+    return () => clearInterval(speedId);
+  }, [gameRunning, gameOver]);
+
+  // =================== Core helpers ===================
 
   function createEmptyBoard(): Cell[][] {
     return Array.from({ length: ROWS }, () =>
@@ -80,14 +130,15 @@ export function useTetris() {
   }
 
   function getRandomPiece(): CurrentPiece {
-    const tetrominoKeys = Object.keys(TETROMINOES);
-    const tetrominoKey = tetrominoKeys[Math.floor(Math.random() * tetrominoKeys.length)];
+    const keys = Object.keys(TETROMINOES);
+    const tetrominoKey = keys[Math.floor(Math.random() * keys.length)];
     const rotationIndex = 0;
-    const tetromino = TETROMINOES[tetrominoKey][rotationIndex];
-    const col = Math.floor((COLS - tetromino.shape[0].length) / 2);
+    const tet = TETROMINOES[tetrominoKey][rotationIndex];
+    const col = Math.floor((COLS - tet.shape[0].length) / 2);
+
     return {
-      shape: tetromino.shape,
-      color: tetromino.color,
+      shape: tet.shape,
+      color: tet.color,
       row: 0,
       col,
       rotationIndex,
@@ -95,164 +146,188 @@ export function useTetris() {
     };
   }
 
-  function checkCollision(shape: number[][], row: number, col: number): boolean {
+  function checkCollision(
+    shape: number[][],
+    row: number,
+    col: number,
+    boardArg?: Cell[][]
+  ): boolean {
+    const b = boardArg ?? boardRef.current;
     for (let y = 0; y < shape.length; y++) {
       for (let x = 0; x < shape[y].length; x++) {
-        if (shape[y][x]) {
-          const boardRow = row + y;
-          const boardCol = col + x;
-          if (
-            boardRow < 0 ||
-            boardRow >= ROWS ||
-            boardCol < 0 ||
-            boardCol >= COLS ||
-            (board[boardRow] && board[boardRow][boardCol].filled)
-          ) {
-            return true;
-          }
+        if (!shape[y][x]) continue;
+        const ry = row + y;
+        const cx = col + x;
+        if (
+          ry < 0 ||
+          ry >= ROWS ||
+          cx < 0 ||
+          cx >= COLS ||
+          (b[ry] && b[ry][cx].filled)
+        ) {
+          return true;
         }
       }
     }
     return false;
   }
 
-  function mergePieceToBoard(piece: CurrentPiece, board: Cell[][]): Cell[][] {
-    const newBoard = board.map(row => row.map(cell => ({ ...cell })));
-    piece.shape.forEach((row, y) => {
-      row.forEach((cell, x) => {
-        if (cell) {
-          const boardRow = piece.row + y;
-          const boardCol = piece.col + x;
-          if (boardRow >= 0 && boardRow < ROWS && boardCol >= 0 && boardCol < COLS) {
-            newBoard[boardRow][boardCol] = { filled: true, color: piece.color };
-          }
+  function mergePieceToBoard(piece: CurrentPiece, boardArg: Cell[][]): Cell[][] {
+    const nb = boardArg.map((r) => r.map((c) => ({ ...c })));
+    piece.shape.forEach((r, y) => {
+      r.forEach((cell, x) => {
+        if (!cell) return;
+        const ry = piece.row + y;
+        const cx = piece.col + x;
+        if (ry >= 0 && ry < ROWS && cx >= 0 && cx < COLS) {
+          nb[ry][cx] = { filled: true, color: piece.color };
         }
       });
     });
-    return newBoard;
+    return nb;
   }
 
-  function clearLines(board: Cell[][]): { newBoard: Cell[][]; linesCleared: number } {
-    const newBoard: Cell[][] = [];
-    let clearedLines = 0;
-
+  function clearLines(boardArg: Cell[][]): { newBoard: Cell[][]; linesCleared: number } {
+    const nb: Cell[][] = [];
+    let cleared = 0;
     for (let r = 0; r < ROWS; r++) {
-      if (board[r].every(cell => cell.filled)) {
-        clearedLines++;
+      if (boardArg[r].every((c) => c.filled)) {
+        cleared++;
       } else {
-        newBoard.push(board[r]);
+        nb.push(boardArg[r]);
       }
     }
-
-    for (let i = 0; i < clearedLines; i++) {
-      newBoard.unshift(Array.from({ length: COLS }, () => ({ filled: false, color: '' })));
+    // add empty rows on top
+    for (let i = 0; i < cleared; i++) {
+      nb.unshift(Array.from({ length: COLS }, () => ({ filled: false, color: '' })));
     }
-
-    return { newBoard, linesCleared: clearedLines };
+    return { newBoard: nb, linesCleared: cleared };
   }
 
   function rotatePiece(piece: CurrentPiece): CurrentPiece {
     const rotations = TETROMINOES[piece.tetrominoKey];
-    const nextRotationIndex = (piece.rotationIndex + 1) % rotations.length;
-    const nextShape = rotations[nextRotationIndex].shape;
+    const nextIdx = (piece.rotationIndex + 1) % rotations.length;
+    const nextShape = rotations[nextIdx].shape;
 
     if (!checkCollision(nextShape, piece.row, piece.col)) {
-      return { ...piece, shape: nextShape, rotationIndex: nextRotationIndex };
+      return { ...piece, shape: nextShape, rotationIndex: nextIdx };
     }
-
+    // simple wall kicks
     const kicks = [-1, 1, -2, 2];
-    for (const kick of kicks) {
-      if (!checkCollision(nextShape, piece.row, piece.col + kick)) {
-        return {
-          ...piece,
-          shape: nextShape,
-          col: piece.col + kick,
-          rotationIndex: nextRotationIndex,
-        };
+    for (const k of kicks) {
+      if (!checkCollision(nextShape, piece.row, piece.col + k)) {
+        return { ...piece, shape: nextShape, col: piece.col + k, rotationIndex: nextIdx };
       }
     }
-
     return piece;
   }
 
+  // =================== Public controls ===================
+
   function moveLeft() {
-    if (!currentPiece || gameOver) return;
-    const newCol = currentPiece.col - 1;
-    if (!checkCollision(currentPiece.shape, currentPiece.row, newCol)) {
-      setCurrentPiece({ ...currentPiece, col: newCol });
+    const cp = currentPieceRef.current;
+    if (!cp || gameOverRef.current) return;
+    const newCol = cp.col - 1;
+    if (!checkCollision(cp.shape, cp.row, newCol)) {
+      const np = { ...cp, col: newCol };
+      currentPieceRef.current = np;
+      setCurrentPiece(np);
     }
   }
 
   function moveRight() {
-    if (!currentPiece || gameOver) return;
-    const newCol = currentPiece.col + 1;
-    if (!checkCollision(currentPiece.shape, currentPiece.row, newCol)) {
-      setCurrentPiece({ ...currentPiece, col: newCol });
-    }
-  }
-
-  function moveDown(): boolean {
-    if (!currentPiece || gameOver) return false;
-    const newRow = currentPiece.row + 1;
-    if (!checkCollision(currentPiece.shape, newRow, currentPiece.col)) {
-      setCurrentPiece({ ...currentPiece, row: newRow });
-      return true;
-    } else {
-      lockPiece();
-      return false;
+    const cp = currentPieceRef.current;
+    if (!cp || gameOverRef.current) return;
+    const newCol = cp.col + 1;
+    if (!checkCollision(cp.shape, cp.row, newCol)) {
+      const np = { ...cp, col: newCol };
+      currentPieceRef.current = np;
+      setCurrentPiece(np);
     }
   }
 
   function rotate() {
-    if (!currentPiece || gameOver) return;
-    const rotated = rotatePiece(currentPiece);
+    const cp = currentPieceRef.current;
+    if (!cp || gameOverRef.current) return;
+    const rotated = rotatePiece(cp);
+    currentPieceRef.current = rotated;
     setCurrentPiece(rotated);
   }
 
   function drop() {
-    if (!currentPiece || gameOver) return;
-    let dropRow = currentPiece.row;
-    while (!checkCollision(currentPiece.shape, dropRow + 1, currentPiece.col)) {
-      dropRow++;
+    const cp = currentPieceRef.current;
+    if (!cp || gameOverRef.current) return;
+    let dropRow = cp.row;
+    while (!checkCollision(cp.shape, dropRow + 1, cp.col)) dropRow++;
+    lockPiece({ ...cp, row: dropRow });
+  }
+
+  // Exposed moveDown for soft drop / ArrowDown
+  function moveDown(): boolean {
+    return stepDown();
+  }
+
+  // =================== Internal stepping & locking ===================
+
+  function stepDown(): boolean {
+    const cp = currentPieceRef.current;
+    if (!cp || gameOverRef.current) return false;
+
+    const newRow = cp.row + 1;
+    if (!checkCollision(cp.shape, newRow, cp.col)) {
+      const np = { ...cp, row: newRow };
+      currentPieceRef.current = np;
+      setCurrentPiece(np);
+      return true;
+    } else {
+      lockPiece(cp);
+      return false;
     }
-    lockPiece({ ...currentPiece, row: dropRow });
   }
 
   function lockPiece(pieceToLock?: CurrentPiece) {
-    const piece = pieceToLock || currentPiece;
-    if (!piece) return;
+    const cp = pieceToLock ?? currentPieceRef.current;
+    if (!cp) return;
 
-    const newBoard = mergePieceToBoard(piece, board);
-    const { newBoard: clearedBoard, linesCleared: cleared } = clearLines(newBoard);
+    // Merge onto board
+    const merged = mergePieceToBoard(cp, boardRef.current);
+    const { newBoard, linesCleared: cleared } = clearLines(merged);
 
-    setBoard(clearedBoard);
-    setLinesCleared(prev => prev + cleared);
-
+    // Update board + score
+    boardRef.current = newBoard;
+    setBoard(newBoard);
     if (cleared > 0) {
-      setScore(prev => prev + calculateScore(cleared));
+      setLinesCleared((prev) => prev + cleared);
+      setScore((prev) => prev + calculateScore(cleared));
     } else {
-      setScore(prev => prev + 5);
+      setScore((prev) => prev + 5);
     }
 
+    // Ensure we always have at least 3 in queue
     let queue = [...nextPiecesRef.current];
-    while (queue.length < 3) {
-      queue.push(getRandomPiece());
-    }
+    while (queue.length < 3) queue.push(getRandomPiece());
 
+    // Pop next piece
     const next = queue.shift()!;
+    nextPiecesRef.current = queue;
     setNextPieces(queue);
+
+    // Place next piece
+    currentPieceRef.current = next;
     setCurrentPiece(next);
 
-    if (checkCollision(next.shape, next.row, next.col)) {
+    // If the new piece collides immediately -> game over
+    if (checkCollision(next.shape, next.row, next.col, boardRef.current)) {
       setGameOver(true);
       setGameRunning(false);
 
-      if (score > bestScore) {
-        setBestScore(score);
+      setBestScore((prevBest) => {
+        const finalScore = (prevBest && score <= prevBest) ? prevBest : score;
         if (typeof window !== 'undefined') {
-          localStorage.setItem('bestScore', String(score));
+          localStorage.setItem('bestScore', String(finalScore));
         }
-      }
+        return finalScore;
+      });
     }
   }
 
@@ -266,15 +341,17 @@ export function useTetris() {
     }
   }
 
-  function calculateGhostPiece(piece: CurrentPiece, board: Cell[][]): CurrentPiece {
+  function calculateGhostPiece(piece: CurrentPiece, b: Cell[][]): CurrentPiece {
     let ghostRow = piece.row;
-    while (!checkCollision(piece.shape, ghostRow + 1, piece.col)) {
-      ghostRow++;
-    }
+    while (!checkCollision(piece.shape, ghostRow + 1, piece.col, b)) ghostRow++;
     return { ...piece, row: ghostRow };
   }
 
+  // =================== Lifecycle controls ===================
+
   function startGame() {
+    setElapsedTime(0);
+    setDropInterval(400);
     setGameRunning(true);
     setGameOver(false);
   }
@@ -284,6 +361,8 @@ export function useTetris() {
   }
 
   function resetGame() {
+    setElapsedTime(0);
+    setDropInterval(400);
     setBoard(createEmptyBoard());
     setCurrentPiece(null);
     setNextPieces([]);
@@ -300,6 +379,7 @@ export function useTetris() {
     }
   }
 
+  // ---- Expose API ----
   return {
     board,
     currentPiece,
@@ -319,5 +399,16 @@ export function useTetris() {
     moveDown,
     rotate,
     drop,
+    // Optional: available if you want to read them
+    dropInterval,
+    elapsedTime,
   };
+}
+
+// =================== Pure helpers (outside hook scope) ===================
+
+function createEmptyBoard(): Cell[][] {
+  return Array.from({ length: ROWS }, () =>
+    Array.from({ length: COLS }, () => ({ filled: false, color: '' }))
+  );
 }
