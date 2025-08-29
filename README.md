@@ -1,6 +1,7 @@
 # ​ Tetris — React · Next.js · Tailwind
 
-A slick, playable **Tetris clone** built using **React**, **Next.js**, and **Tailwind CSS**.  
+A slick, playable **Tetris ** built using **React**, **Next.js**, and **Tailwind CSS**.
+Repurposed For College Society (MLSC) Use.  
 **▶ Play it live:** [tetris-nine-amber.vercel.app](https://tetris-nine-amber.vercel.app/)
 
 ---
